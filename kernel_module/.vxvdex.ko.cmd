@@ -1,0 +1,1 @@
+cmd_/home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-4.6.0-1-common/scripts/module-common.lds --build-id  -o /home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.ko /home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.o /home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.mod.o

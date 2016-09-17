@@ -1,0 +1,1 @@
+cmd_/home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.o := ld -m elf_x86_64   -r -o /home/renzo/tests/libvdeplug4/vxvdex/kernel_module/vxvdex.o /home/renzo/tests/libvdeplug4/vxvdex/kernel_module/af_vxvdex.o 
