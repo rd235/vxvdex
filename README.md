@@ -101,7 +101,8 @@ VXVDEX defines an address family (AF\_VXVDEX) which permits a limited access to 
 
 Vxvdex sockets allow:
 - UDP datagrams only (no TCP or other transport layer protocols)
-- multicast to addresses whose last three bytes have the value of the egid (so multicast domains are independent).
+- binding to multicast addresses whose last three bytes have the value of the egid (so multicast domains are independent).
+- binding to unicast addresses.
 - unicast and multicast packets whose VNI have the same value of egid (vxvdex uses the same header as vxvde and vxlan. 
 		Packets using different VNI are not sent and discarded when received).
 - setsockopt is limited to the set of features required by the vxvdex plugin and parameters are checked against configuration defined limits,
