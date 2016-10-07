@@ -110,7 +110,7 @@ Vxvdex sockets allow:
 
 So user processes (e.g. virtual machines, IoTh network stacks or a vde\_plug) can communicate outside the *cage* of
 their networking namespaces but the narrow channel defined by vxvdex's strict rules guarantees that the 
-sets of packets generated and/or received by namespaces beloning to different egids have empty intersections.
+sets of packets generated and/or received by namespaces belonging to different egids have empty intersections.
 
 (c) Renzo Davoli 2016. VirtualSquare Labs. University of Bologna. Italy.
 This abstract is protected by the CC-BY-SA-4.0 international license.
