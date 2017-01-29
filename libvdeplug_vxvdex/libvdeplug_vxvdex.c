@@ -237,7 +237,10 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 	char *v4str = NULL;
 	char *hashsizestr = NULL;
 	char *expiretimestr = NULL;
-	char *ifstr = NULL;
+	/* interface selection is not allowed by the kernel module
+	 (only sysadm can set the interface by changing the value in
+	 /sys/module/vxvdex/parameters/ifindex) */
+	char *ifstr = NULL; 
 	struct vdeparms parms[] = {
 		{"port",&portstr},
 		{"vni",&vnistr},
