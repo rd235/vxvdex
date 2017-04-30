@@ -1,5 +1,5 @@
 /*
- * VDE - libvdeplug_vx modules 
+ * VDE - libvdeplug_vx modules
  * Copyright (C) 2016 Renzo Davoli VirtualSquare
  *
  * This library is free software; you can redistribute it and/or modify it
@@ -33,8 +33,7 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include "libvdeplug_mod.h"
-#include "libvdeplug_vxhash.h"
+#include <libvdeplug_mod.h>
 
 /* two alternatives to check whether an ip addr is local:
 LOCALBIND: try to open and bind a socket to the same addr (any port), if it succeeds it is local!
@@ -53,7 +52,7 @@ LOCALBIND: try to open and bind a socket to the same addr (any port), if it succ
 #define STDTTLSTR "1"
 #define STDRCVBUFSTR "2M"
 #define STDVNI 1
-#define STDHASHSIZE 1023
+#define STDHASHSIZE 1024
 #define STDEXPIRETIME 128
 
 #define ETH_ALEN 6
@@ -97,14 +96,13 @@ union sockaddr46 {
 struct vde_vxvde_conn {
 	void *handle;
 	struct vdeplug_module *module;
-	void *table;
-	unsigned int hash_mask; // hash table size - 1. This must be 2^n-1 
+	struct vde_hashtable *table;
 	union {
 		struct vxvde_hdr connhdr;
 		uint64_t connhdr64;
 	};
 	union sockaddr46 multiaddr;
-	union sockaddr46 localaddr; 
+	union sockaddr46 localaddr;
 	in_port_t uniport;
 	int multifd;
 	int unifd;
@@ -208,14 +206,14 @@ static inline void printaddr(char *msg, void *sockaddr)
 	struct sockaddr_in6 *s6=sockaddr;
 	char saddr[INET6_ADDRSTRLEN];
 	switch (s->sa_family) {
-		case AF_INET: 
-			fprintf(stderr,"%s %s\n",msg,inet_ntop(AF_INET, &s4->sin_addr, saddr, sizeof(*s4)));     
+		case AF_INET:
+			fprintf(stderr,"%s %s\n",msg,inet_ntop(AF_INET, &s4->sin_addr, saddr, sizeof(*s4)));
 			break;
-		case AF_INET6: 
-			fprintf(stderr,"%s %s\n",msg,inet_ntop(AF_INET6, &s6->sin6_addr, saddr, sizeof(*s6)));     
+		case AF_INET6:
+			fprintf(stderr,"%s %s\n",msg,inet_ntop(AF_INET6, &s6->sin6_addr, saddr, sizeof(*s6)));
 			break;
 		default:
-			fprintf(stderr,"%s UNKNOWN FAMILY %d\n",msg,s->sa_family);     
+			fprintf(stderr,"%s UNKNOWN FAMILY %d\n",msg,s->sa_family);
 			break;
 	}
 }
@@ -228,6 +226,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 	struct addrinfo hints;
 	struct addrinfo *result,*rp;
 	int s;
+	unsigned int hashsize = STDHASHSIZE;
 	char *portstr = STDPORTSTR;
 	char *vnistr = NULL;
 	char *grpstr = NULL;
@@ -240,7 +239,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 	/* interface selection is not allowed by the kernel module
 	 (only sysadm can set the interface by changing the value in
 	 /sys/module/vxvdex/parameters/ifindex) */
-	char *ifstr = NULL; 
+	char *ifstr = NULL;
 	struct vdeparms parms[] = {
 		{"port",&portstr},
 		{"vni",&vnistr},
@@ -328,7 +327,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 												 multifd=unifd=-1;
 												 continue;
 											 }
-											 memcpy(&mc_req.ipv6mr_multiaddr, &addr->sin6_addr, 
+											 memcpy(&mc_req.ipv6mr_multiaddr, &addr->sin6_addr,
 													 sizeof(addr->sin6_addr));
 											 mc_req.ipv6mr_interface = ifindex;
 
@@ -375,16 +374,16 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 															&rcvbuf, sizeof(rcvbuf))) < 0)
 												goto error;
 											if ((setsockopt(unifd, IPPROTO_IP, IP_TTL,
-															&ttl, sizeof(ttl))) < 0) 
+															&ttl, sizeof(ttl))) < 0)
 												goto error;
 											if ((setsockopt(unifd, IPPROTO_IP, IP_MULTICAST_TTL,
-															&ttl, sizeof(ttl))) < 0) 
+															&ttl, sizeof(ttl))) < 0)
 												goto error;
 											if ((setsockopt(multifd, IPPROTO_IP, IP_PKTINFO,
 															&one, sizeof(one))) < 0)
 												goto error;
 											grpsetaddr(grp, &addr->sin_addr, sizeof(addr->sin_addr));
-											if ((bind(multifd, (struct sockaddr *) addr, 
+											if ((bind(multifd, (struct sockaddr *) addr,
 															sizeof(*addr))) < 0) {
 												close(multifd);
 												close(unifd);
@@ -438,10 +437,10 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 		ev.events = EPOLLIN;
 		ev.data.fd = multifd;
 		if (epoll_ctl(pollfd, EPOLL_CTL_ADD, multifd, &ev) < 0)
-			goto error; 
+			goto error;
 		ev.data.fd = unifd;
 		if (epoll_ctl(pollfd, EPOLL_CTL_ADD, unifd, &ev) < 0)
-			goto error; 
+			goto error;
 	}
 
 	if ((newconn=calloc(1,sizeof(struct vde_vxvde_conn)))==NULL) {
@@ -449,13 +448,21 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 		goto error;
 	}
 
-	if (hashsizestr != NULL) {
-		/* force to the next 2^n value */
-		unsigned int hashsize = (2 << (sizeof(hashsize) * 8 - __builtin_clz(atoi(hashsizestr) - 1) - 1));
-		newconn->hash_mask = hashsize == 0 ? STDHASHSIZE : hashsize -1;
-	} else
-		newconn->hash_mask=STDHASHSIZE;
-	newconn->table=vx_hash_init(multiaddr->sa_family, newconn->hash_mask);
+	if (hashsizestr != NULL)
+		hashsize = atoi(hashsizestr);
+
+	switch (multiaddr->sa_family) {
+		case AF_INET6:
+			newconn->table = vde_hash_init(struct sockaddr_in6 , hashsize, 0);
+			break;
+		case AF_INET:
+			newconn->table = vde_hash_init(struct sockaddr_in , hashsize, 0);
+			break;
+		default:
+			newconn->table = NULL;
+			break;
+	}
+
 	memset(&newconn->connhdr, 0, sizeof(struct vxvde_hdr));
 	newconn->connhdr.flags = (1 << 3);
 	hton24(newconn->connhdr.id, vni);
@@ -540,11 +547,11 @@ static ssize_t vde_vxvde_recv(VDECONN *conn,void *buf,size_t len,int flags) {
 												 }
 				}
 			}
-			vx_find_in_hash_update(vde_conn->table, vde_conn->hash_mask, ehdr->src, 1, msg.msg_name, time(NULL));
+			vde_find_in_hash_update(vde_conn->table, ehdr->src, 1, msg.msg_name, time(NULL));
 			return retval;
 		} else if (retval == 0) {
 			if (vhdr64 == vde_conn->connhdr64)
-				vx_hash_delete(vde_conn->table, vde_conn->hash_mask, msg.msg_name);
+				vde_hash_delete(vde_conn->table, msg.msg_name);
 		}
 	}
 error:
@@ -558,7 +565,7 @@ static ssize_t vde_vxvde_send(VDECONN *conn,const void *buf, size_t len,int flag
 	struct eth_hdr *ehdr=(struct eth_hdr *) buf;
 	int retval;
 	struct iovec iov[]={{&vde_conn->connhdr, sizeof(struct vxvde_hdr)},{(char *)buf, len}};
-	struct msghdr msg={   
+	struct msghdr msg={
 		.msg_iov=iov,
 		.msg_iovlen=2,
 		.msg_control = NULL,
@@ -568,8 +575,7 @@ static ssize_t vde_vxvde_send(VDECONN *conn,const void *buf, size_t len,int flag
 		return len; // discard packets shorter than an ethernet header
 	if (__builtin_expect(
 				(IS_BROADCAST(ehdr->dest) ||
-				 (msg.msg_name=vx_find_in_hash(vde_conn->table, vde_conn->multiaddr.vx.sa_family,
-																			 vde_conn->hash_mask, ehdr->dest, 1, time(NULL) - vde_conn->expiretime)) == NULL),
+				 (msg.msg_name = vde_find_in_hash(vde_conn->table, ehdr->dest, 1, time(NULL)- vde_conn->expiretime)) == NULL),
 				0))	{
 		msg.msg_name=&(vde_conn->multiaddr.vx);
 		//printaddr("send multi",destaddr);
@@ -598,7 +604,7 @@ static int vde_vxvde_close(VDECONN *conn) {
 			&vde_conn->multiaddr.vx, fam2socklen(&vde_conn->multiaddr.vx));
 	close(vde_conn->unifd);
 	close(vde_conn->multifd);
-	vx_hash_fini(vde_conn->table);
+	vde_hash_fini(vde_conn->table);
 	free(vde_conn);
 	return 0;
 }
