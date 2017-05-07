@@ -114,3 +114,28 @@ sets of packets generated and/or received by namespaces belonging to different e
 
 (c) Renzo Davoli 2016. VirtualSquare Labs. University of Bologna. Italy.
 This abstract is protected by the CC-BY-SA-4.0 international license.
+
+## Install VXVDEX
+
+vxvdex has two components:
+* a kernel module
+* a libvdeplug4 plugin.
+
+prerequisite: vdeplug4
+
+### INSTALL the kernel module:
+```
+$ cd kernel_module
+$ make
+$ sudo mkdir -p /lib/modules/$(uname -r)/kernel/misc
+$ sudo cp vxvdex.ko /lib/modules/$(uname -r)/kernel/misc
+$ sudo depmod -a
+```
+### INSTALL the libvdeplug4 plugin
+```
+$ cd libvdeplug_vxvdex
+$ autoreconf -if
+$ ./configure
+$ make
+$ sudo make install
+```
