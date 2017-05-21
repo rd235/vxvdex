@@ -79,7 +79,7 @@ struct vxvde_hdr {
 	unsigned char priv2[1];
 };
 
-static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version,
+static VDECONN *vde_vxvde_open(char *vde_url, char *descr,int interface_version,
 		struct vde_open_args *open_args);
 static ssize_t vde_vxvde_recv(VDECONN *conn,void *buf,size_t len,int flags);
 static ssize_t vde_vxvde_send(VDECONN *conn,const void *buf,size_t len,int flags);
@@ -219,7 +219,23 @@ static inline void printaddr(char *msg, void *sockaddr)
 }
 #endif
 
-static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version,
+static int getbindaddr(const char *bindstr, int family, void *addr) {
+	int s;
+	struct addrinfo hints;
+	struct addrinfo *result;
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = family;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_flags = AI_PASSIVE;
+	s = getaddrinfo(bindstr, "0", &hints, &result);
+	if (s == 0) {
+		memcpy(addr, result->ai_addr, result->ai_addrlen);
+		freeaddrinfo(result);
+	}
+	return s;
+}
+
+static VDECONN *vde_vxvde_open(char *vde_url, char *descr,int interface_version,
 		struct vde_open_args *open_args)
 {
 	struct vde_vxvde_conn *newconn=NULL;
@@ -240,6 +256,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 	 (only sysadm can set the interface by changing the value in
 	 /sys/module/vxvdex/parameters/ifindex) */
 	char *ifstr = NULL;
+	char *bindstr = NULL;
 	struct vdeparms parms[] = {
 		{"port",&portstr},
 		{"vni",&vnistr},
@@ -251,6 +268,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 		{"hashsize",&hashsizestr},
 		{"expiretime",&expiretimestr},
 		{"if",&ifstr},
+		{"bind",&bindstr},
 		{NULL, NULL}};
 	struct sockaddr *multiaddr = NULL;
 	int multifd=-1;
@@ -274,7 +292,7 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 	hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
 	hints.ai_protocol = 0;          /* Any protocol */
 
-	if (vde_parseparms(sockname, parms) != 0)
+	if (vde_parseparms(vde_url, parms) != 0)
 		return NULL;
 	ttl = atoi(ttlstr);
 	if (grpstr == NULL) grpstr="";
@@ -284,12 +302,12 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 		vni = grp == -1 ? STDVNI : grp;
 	rcvbuf = strtoullm(rcvbufstr);
 
-	if (*sockname == 0)
-		sockname = v6str != NULL ? DEFADDRV6 : DEFADDRV4;
+	if (*vde_url == 0)
+		vde_url = v6str != NULL ? DEFADDRV6 : DEFADDRV4;
 	if (ifstr != NULL)
 		ifindex = if_nametoindex(ifstr);
 
-	s = getaddrinfo(sockname, portstr, &hints, &result);
+	s = getaddrinfo(vde_url, portstr, &hints, &result);
 	if (s < 0) {
 		fprintf(stderr, "vxvde getaddrinfo: %s\n", gai_strerror(s));
 		errno=ENOENT;
@@ -334,10 +352,10 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 											 if ((setsockopt(multifd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
 															 &mc_req, sizeof(mc_req))) < 0)
 												 goto error;
-											 memset(&bindaddr, 0, sizeof(bindaddr));
-											 bindaddr.sin6_family      = AF_INET6;
-											 memcpy(&bindaddr.sin6_addr, &in6addr_any, sizeof(in6addr_any));
-											 bindaddr.sin6_port        = 0;
+											 if (getbindaddr(bindstr, AF_INET6, &bindaddr) != 0) {
+												 errno = ENOENT;
+												 goto error;
+											 }
 											 if ((bind(unifd, (struct sockaddr *) &bindaddr,
 															 sizeof(bindaddr))) < 0) {
 												 close(multifd);
@@ -396,10 +414,10 @@ static VDECONN *vde_vxvde_open(char *sockname, char *descr,int interface_version
 											if ((setsockopt(multifd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 															&mc_req, sizeof(mc_req))) < 0)
 												goto error;
-											memset(&bindaddr, 0, sizeof(bindaddr));
-											bindaddr.sin_family      = AF_INET;
-											bindaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-											bindaddr.sin_port        = 0;
+											if (getbindaddr(bindstr, AF_INET, &bindaddr) != 0) {
+												errno = ENOENT;
+												goto error;
+											}
 											if ((bind(unifd, (struct sockaddr *) &bindaddr,
 															sizeof(bindaddr))) < 0) {
 												close(multifd);
